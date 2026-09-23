@@ -2,6 +2,10 @@
 #include <cstdlib>
 #include <ctime>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 const int MAX_HISTORY = 100;
 const int MAX_CARDS = 12;
 
@@ -9,6 +13,7 @@ enum menu_option
 {
     PLAY_DICE = 1,
     PLAY_BLACKJACK,
+    PLAY_SLOTS,
     SHOW_STATS,
     SHOW_HISTORY,
     QUIT
@@ -42,8 +47,7 @@ struct game_result
 void print_menu();
 void print_player(const player &player_data);
 int get_bet(const player &player_data);
-void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result,
-                 int player_value, int computer_value);
+void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value, int computer_value);
 void print_history(const game_result history[], int history_count);
 void play_dice(player &player_data, game_result history[], int &history_count);
 int draw_card();
@@ -52,9 +56,18 @@ void print_hand(const int cards[], int card_count);
 void player_turn(int cards[], int &card_count);
 void dealer_turn(int cards[], int &card_count);
 void play_blackjack(player &player_data, game_result history[], int &history_count);
+string generate_slot_symbol();
+int get_slot_multiplier(string symbol);
+void play_slots(player &player_data, game_result history[], int &history_count);
 
 int main()
 {
+// Function to show symbols
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+
     srand(time(NULL));
 
     player player_data;
@@ -112,6 +125,20 @@ int main()
             }
             break;
 
+        case PLAY_SLOTS:
+            if (current_player != nullptr)
+            {
+                if (current_player->chips > 0)
+                {
+                    play_slots(*current_player, history, history_count);
+                }
+                else
+                {
+                    write_line("You do not have enough chips to play.");
+                }
+            }
+            break;
+
         case SHOW_STATS:
             if (current_player != nullptr)
             {
@@ -144,9 +171,10 @@ void print_menu()
     write_line("=== Casino Night Simulator ===");
     write_line("1. Play Dice");
     write_line("2. Play Blackjack");
-    write_line("3. Show player statistics");
-    write_line("4. Show game history");
-    write_line("5. Quit");
+    write_line("3. Play Slot Machine");
+    write_line("4. Show player statistics");
+    write_line("5. Show game history");
+    write_line("6. Quit");
     write("Option: ");
 }
 
@@ -180,8 +208,7 @@ int get_bet(const player &player_data)
 }
 
 // Save game result
-void save_result(game_result history[], int &history_count, string game_name, int bet,
-                 result_type result, int player_value, int computer_value)
+void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value, int computer_value)
 {
     if (history_count < MAX_HISTORY)
     {
@@ -231,6 +258,14 @@ void print_history(const game_result history[], int history_count)
         {
             write_line("Player guess: " + to_string(history[i].player_value));
             write_line("Dice value: " + to_string(history[i].computer_value));
+        }
+        else if (history[i].game_name == "Slots")
+        {
+            if (history[i].result == WIN)
+            {
+                write_line("Winning lines: " + to_string(history[i].player_value));
+                write_line("Total winnings: " + to_string(history[i].computer_value));
+            }
         }
         else
         {
@@ -353,6 +388,7 @@ void player_turn(int cards[], int &card_count)
     while (!finished && calculate_hand(cards, card_count) < 21)
     {
         write_line("");
+
         write("Your cards: ");
         print_hand(cards, card_count);
         write_line("Total: " + to_string(calculate_hand(cards, card_count)));
@@ -434,8 +470,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
 
         player_data.chips -= bet;
 
-        save_result(history, history_count, "Blackjack", bet, LOSS, player_total,
-                    calculate_hand(dealer_cards, dealer_card_count));
+        save_result(history, history_count, "Blackjack", bet, LOSS, player_total, calculate_hand(dealer_cards, dealer_card_count));
 
         write_line("Current chips: " + to_string(player_data.chips));
         return;
@@ -492,6 +527,233 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
         write_line("It is a draw.");
 
         save_result(history, history_count, "Blackjack", bet, DRAW, player_total, dealer_total);
+    }
+
+    write_line("Current chips: " + to_string(player_data.chips));
+}
+
+// Generate one Slot Machine symbol
+string generate_slot_symbol()
+{
+    int random_number = rand() % 100;
+
+    if (random_number < 20)
+    {
+        return "🍒";
+    }
+    else if (random_number < 38)
+    {
+        return "🍋";
+    }
+    else if (random_number < 54)
+    {
+        return "🔔";
+    }
+    else if (random_number < 68)
+    {
+        return "⭐";
+    }
+    else if (random_number < 80)
+    {
+        return "💎";
+    }
+    else if (random_number < 91)
+    {
+        return "👑";
+    }
+    else
+    {
+        return "7";
+    }
+}
+
+// Return Slot Machine payout multiplier
+int get_slot_multiplier(string symbol)
+{
+    if (symbol == "🍒")
+    {
+        return 2;
+    }
+    else if (symbol == "🍋")
+    {
+        return 3;
+    }
+    else if (symbol == "🔔")
+    {
+        return 4;
+    }
+    else if (symbol == "⭐")
+    {
+        return 6;
+    }
+    else if (symbol == "💎")
+    {
+        return 8;
+    }
+    else if (symbol == "👑")
+    {
+        return 12;
+    }
+    else if (symbol == "7")
+    {
+        return 20;
+    }
+
+    return 0;
+}
+
+// Play Slot Machine
+void play_slots(player &player_data, game_result history[], int &history_count)
+{
+    const int ROWS = 3;
+    const int COLS = 3;
+
+    string slots[ROWS][COLS];
+
+    write_line("");
+    write_line("=== Slot Machine ===");
+    write_line("There are 8 winning paylines:");
+    write_line("3 horizontal, 3 vertical and 2 diagonal.");
+
+    write_line("");
+    write_line("Payouts:");
+    write_line("🍒 🍒 🍒 = x2");
+    write_line("🍋 🍋 🍋 = x3");
+    write_line("🔔 🔔 🔔 = x4");
+    write_line("⭐ ⭐ ⭐ = x6");
+    write_line("💎 💎 💎 = x8");
+    write_line("👑 👑 👑 = x12");
+    write_line("7  7  7  = x20");
+
+    write_line("");
+    write_line("Multi-line bonus:");
+    write_line("2 winning lines = x2 total winnings");
+    write_line("3 winning lines = x3 total winnings");
+    write_line("4 or more winning lines = x5 total winnings");
+
+    int bet = get_bet(player_data);
+
+    // Generate Slot Machine symbols
+    for (int row = 0; row < ROWS; row++)
+    {
+        for (int col = 0; col < COLS; col++)
+        {
+            slots[row][col] = generate_slot_symbol();
+        }
+    }
+
+    // Display Slot Machine
+    write_line("");
+    write_line("=======================");
+
+    for (int row = 0; row < ROWS; row++)
+    {
+        write("| ");
+
+        for (int col = 0; col < COLS; col++)
+        {
+            write(slots[row][col] + " | ");
+        }
+
+        write_line("");
+    }
+
+    write_line("=======================");
+
+    player_data.games_played++;
+
+    int paylines[8][6] =
+        {
+            {0, 0, 0, 1, 0, 2},
+            {1, 0, 1, 1, 1, 2},
+            {2, 0, 2, 1, 2, 2},
+
+            {0, 0, 1, 0, 2, 0},
+            {0, 1, 1, 1, 2, 1},
+            {0, 2, 1, 2, 2, 2},
+
+            {0, 0, 1, 1, 2, 2},
+            {0, 2, 1, 1, 2, 0}};
+
+    int winning_lines = 0;
+    int total_winnings = 0;
+
+    // Check winning paylines
+    for (int i = 0; i < 8; i++)
+    {
+        int row1 = paylines[i][0];
+        int col1 = paylines[i][1];
+
+        int row2 = paylines[i][2];
+        int col2 = paylines[i][3];
+
+        int row3 = paylines[i][4];
+        int col3 = paylines[i][5];
+
+        string symbol1 = slots[row1][col1];
+        string symbol2 = slots[row2][col2];
+        string symbol3 = slots[row3][col3];
+
+        if (symbol1 == symbol2 && symbol2 == symbol3)
+        {
+            int multiplier = get_slot_multiplier(symbol1);
+            int line_winnings = bet * multiplier;
+
+            winning_lines++;
+            total_winnings += line_winnings;
+
+            write_line("");
+            write_line("Winning line " + to_string(i + 1) + "!");
+            write_line("Symbol: " + symbol1);
+            write_line("Multiplier: x" + to_string(multiplier));
+            write_line("Line winnings: " + to_string(line_winnings) + " chips.");
+        }
+    }
+
+    // Apply multi-line bonus
+    int bonus_multiplier = 1;
+
+    if (winning_lines == 2)
+    {
+        bonus_multiplier = 2;
+    }
+    else if (winning_lines == 3)
+    {
+        bonus_multiplier = 3;
+    }
+    else if (winning_lines >= 4)
+    {
+        bonus_multiplier = 5;
+    }
+
+    if (winning_lines > 0)
+    {
+        if (bonus_multiplier > 1)
+        {
+            write_line("");
+            write_line("Multi-line bonus: x" + to_string(bonus_multiplier));
+            total_winnings *= bonus_multiplier;
+        }
+
+        player_data.chips += total_winnings;
+        player_data.games_won++;
+
+        write_line("");
+        write_line("You win!");
+        write_line("Winning lines: " + to_string(winning_lines));
+        write_line("Total winnings: " + to_string(total_winnings) + " chips.");
+
+        save_result(history, history_count, "Slots", bet, WIN, winning_lines, total_winnings);
+    }
+    else
+    {
+        player_data.chips -= bet;
+
+        write_line("");
+        write_line("No winning lines.");
+        write_line("You lost " + to_string(bet) + " chips.");
+
+        save_result(history, history_count, "Slots", bet, LOSS, 0, 0);
     }
 
     write_line("Current chips: " + to_string(player_data.chips));
