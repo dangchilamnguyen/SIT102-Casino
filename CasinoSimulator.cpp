@@ -1,6 +1,7 @@
 #include "splashkit.h"
 #include <cstdlib>
 #include <ctime>
+#include <mariadb/mysql.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -59,6 +60,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
 string generate_slot_symbol();
 int get_slot_multiplier(string symbol);
 void play_slots(player &player_data, game_result history[], int &history_count);
+MYSQL *connect_database();
 
 int main()
 {
@@ -69,6 +71,13 @@ int main()
 #endif
 
     srand(time(NULL));
+
+    MYSQL *database = connect_database();
+
+    if (database != nullptr)
+    {
+        write_line("Database connected successfully.");
+    }
 
     player player_data;
 
@@ -160,6 +169,11 @@ int main()
         }
 
     } while (choice != QUIT);
+
+    if (database != nullptr)
+    {
+        mysql_close(database);
+    }
 
     return 0;
 }
@@ -757,4 +771,39 @@ void play_slots(player &player_data, game_result history[], int &history_count)
     }
 
     write_line("Current chips: " + to_string(player_data.chips));
+}
+
+MYSQL *connect_database()
+{
+    _putenv("MARIADB_TLS_DISABLE_PEER_VERIFICATION=1");
+
+    MYSQL *connection = mysql_init(nullptr);
+
+    if (connection == nullptr)
+    {
+        write_line("Database initialization failed.");
+        return nullptr;
+    }
+
+    bool verify_ssl = false;
+    mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify_ssl);
+
+    MYSQL *result = mysql_real_connect(
+        connection,
+        "127.0.0.1",
+        "root",
+        "",
+        "casino sit102",
+        3306,
+        nullptr,
+        0);
+
+    if (result == nullptr)
+    {
+        write_line("Database connection failed: " + string(mysql_error(connection)));
+        mysql_close(connection);
+        return nullptr;
+    }
+
+    return connection;
 }
