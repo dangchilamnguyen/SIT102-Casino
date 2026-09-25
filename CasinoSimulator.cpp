@@ -48,23 +48,26 @@ struct game_result
 void print_menu();
 void print_player(const player &player_data);
 int get_bet(const player &player_data);
-void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value, int computer_value);
+void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value,
+                 int computer_value);
 void print_history(const game_result history[], int history_count);
-void play_dice(player &player_data, game_result history[], int &history_count);
+void play_dice(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id);
 int draw_card();
 int calculate_hand(const int cards[], int card_count);
 void print_hand(const int cards[], int card_count);
 void player_turn(int cards[], int &card_count);
 void dealer_turn(int cards[], int &card_count);
-void play_blackjack(player &player_data, game_result history[], int &history_count);
+void play_blackjack(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id);
 string generate_slot_symbol();
 int get_slot_multiplier(string symbol);
-void play_slots(player &player_data, game_result history[], int &history_count);
+void play_slots(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id);
 MYSQL *connect_database();
+int get_or_create_player(MYSQL *database, player &player_data);
+void update_player_database(MYSQL *database, int player_id, const player &player_data);
+void save_result_to_database(MYSQL *database, int player_id, string game_type, result_type result, int chips_change);
 
 int main()
 {
-// Function to show symbols
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -81,6 +84,7 @@ int main()
 
     player player_data;
 
+    // Default values in case database connection fails
     player_data.chips = 500;
     player_data.games_played = 0;
     player_data.games_won = 0;
@@ -92,6 +96,18 @@ int main()
 
     write("Enter your name: ");
     player_data.name = read_line();
+
+    int player_id = get_or_create_player(database, player_data);
+
+    if (player_id == -1)
+    {
+        write_line("Could not load player from database.");
+    }
+    else
+    {
+        write_line("Player loaded successfully.");
+        write_line("Player database ID: " + to_string(player_id));
+    }
 
     write_line("Your starting chips are " + to_string(player_data.chips));
 
@@ -111,7 +127,7 @@ int main()
             {
                 if (current_player->chips > 0)
                 {
-                    play_dice(*current_player, history, history_count);
+                    play_dice(*current_player, history, history_count, database, player_id);
                 }
                 else
                 {
@@ -125,7 +141,7 @@ int main()
             {
                 if (current_player->chips > 0)
                 {
-                    play_blackjack(*current_player, history, history_count);
+                    play_blackjack(*current_player, history, history_count, database, player_id);
                 }
                 else
                 {
@@ -139,7 +155,7 @@ int main()
             {
                 if (current_player->chips > 0)
                 {
-                    play_slots(*current_player, history, history_count);
+                    play_slots(*current_player, history, history_count, database, player_id);
                 }
                 else
                 {
@@ -290,7 +306,7 @@ void print_history(const game_result history[], int history_count)
 }
 
 // Play Dice game
-void play_dice(player &player_data, game_result history[], int &history_count)
+void play_dice(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id)
 {
     write_line("");
     write_line("=== Dice Game ===");
@@ -324,6 +340,7 @@ void play_dice(player &player_data, game_result history[], int &history_count)
         write_line("You won " + to_string(winnings) + " chips.");
 
         save_result(history, history_count, "Dice", bet, WIN, guess, dice_value);
+        save_result_to_database(database, player_id, "Dice", WIN, winnings);
     }
     else
     {
@@ -333,7 +350,10 @@ void play_dice(player &player_data, game_result history[], int &history_count)
         write_line("You lost " + to_string(bet) + " chips.");
 
         save_result(history, history_count, "Dice", bet, LOSS, guess, dice_value);
+        save_result_to_database(database, player_id, "Dice", LOSS, -bet);
     }
+
+    update_player_database(database, player_id, player_data);
 
     write_line("Current chips: " + to_string(player_data.chips));
 }
@@ -446,7 +466,7 @@ void dealer_turn(int cards[], int &card_count)
 }
 
 // Play Blackjack
-void play_blackjack(player &player_data, game_result history[], int &history_count)
+void play_blackjack(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id)
 {
     write_line("");
     write_line("=== Blackjack ===");
@@ -485,6 +505,9 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
         player_data.chips -= bet;
 
         save_result(history, history_count, "Blackjack", bet, LOSS, player_total, calculate_hand(dealer_cards, dealer_card_count));
+        save_result_to_database(database, player_id, "Blackjack", LOSS, -bet);
+
+        update_player_database(database, player_id, player_data);
 
         write_line("Current chips: " + to_string(player_data.chips));
         return;
@@ -514,6 +537,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
         write_line("You won " + to_string(winnings) + " chips.");
 
         save_result(history, history_count, "Blackjack", bet, WIN, player_total, dealer_total);
+        save_result_to_database(database, player_id, "Blackjack", WIN, winnings);
     }
     else if (player_total > dealer_total)
     {
@@ -526,6 +550,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
         write_line("You won " + to_string(winnings) + " chips.");
 
         save_result(history, history_count, "Blackjack", bet, WIN, player_total, dealer_total);
+        save_result_to_database(database, player_id, "Blackjack", WIN, winnings);
     }
     else if (player_total < dealer_total)
     {
@@ -535,13 +560,17 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
         write_line("You lost " + to_string(bet) + " chips.");
 
         save_result(history, history_count, "Blackjack", bet, LOSS, player_total, dealer_total);
+        save_result_to_database(database, player_id, "Blackjack", LOSS, -bet);
     }
     else
     {
         write_line("It is a draw.");
 
         save_result(history, history_count, "Blackjack", bet, DRAW, player_total, dealer_total);
+        save_result_to_database(database, player_id, "Blackjack", DRAW, 0);
     }
+
+    update_player_database(database, player_id, player_data);
 
     write_line("Current chips: " + to_string(player_data.chips));
 }
@@ -617,7 +646,7 @@ int get_slot_multiplier(string symbol)
 }
 
 // Play Slot Machine
-void play_slots(player &player_data, game_result history[], int &history_count)
+void play_slots(player &player_data, game_result history[], int &history_count, MYSQL *database, int player_id)
 {
     const int ROWS = 3;
     const int COLS = 3;
@@ -758,6 +787,7 @@ void play_slots(player &player_data, game_result history[], int &history_count)
         write_line("Total winnings: " + to_string(total_winnings) + " chips.");
 
         save_result(history, history_count, "Slots", bet, WIN, winning_lines, total_winnings);
+        save_result_to_database(database, player_id, "Slots", WIN, total_winnings);
     }
     else
     {
@@ -768,11 +798,15 @@ void play_slots(player &player_data, game_result history[], int &history_count)
         write_line("You lost " + to_string(bet) + " chips.");
 
         save_result(history, history_count, "Slots", bet, LOSS, 0, 0);
+        save_result_to_database(database, player_id, "Slots", LOSS, -bet);
     }
+
+    update_player_database(database, player_id, player_data);
 
     write_line("Current chips: " + to_string(player_data.chips));
 }
 
+// Connect to MariaDB
 MYSQL *connect_database()
 {
     _putenv("MARIADB_TLS_DISABLE_PEER_VERIFICATION=1");
@@ -788,15 +822,7 @@ MYSQL *connect_database()
     bool verify_ssl = false;
     mysql_options(connection, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &verify_ssl);
 
-    MYSQL *result = mysql_real_connect(
-        connection,
-        "127.0.0.1",
-        "root",
-        "",
-        "casino sit102",
-        3306,
-        nullptr,
-        0);
+    MYSQL *result = mysql_real_connect(connection, "127.0.0.1", "root", "", "casino sit102", 3306, nullptr, 0);
 
     if (result == nullptr)
     {
@@ -806,4 +832,109 @@ MYSQL *connect_database()
     }
 
     return connection;
+}
+
+// Get existing player or create a new player
+int get_or_create_player(MYSQL *database, player &player_data)
+{
+    if (database == nullptr)
+    {
+        return -1;
+    }
+
+    string query = "SELECT PLAYER_ID, CHIPS, GAME_PLAYED, GAMES_WON FROM PLAYER WHERE NAME = '" + player_data.name + "'";
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Database query failed: " + string(mysql_error(database)));
+        return -1;
+    }
+
+    MYSQL_RES *result = mysql_store_result(database);
+
+    if (result != nullptr)
+    {
+        MYSQL_ROW row = mysql_fetch_row(result);
+
+        if (row != nullptr)
+        {
+            int player_id = convert_to_integer(row[0]);
+
+            player_data.chips = convert_to_integer(row[1]);
+            player_data.games_played = convert_to_integer(row[2]);
+            player_data.games_won = convert_to_integer(row[3]);
+
+            mysql_free_result(result);
+
+            return player_id;
+        }
+
+        mysql_free_result(result);
+    }
+
+    query = "INSERT INTO PLAYER (NAME, CHIPS, GAME_PLAYED, GAMES_WON, TOTAL_WINS) VALUES ('" + player_data.name + "', 500, 0, 0, 0)";
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Could not create player: " + string(mysql_error(database)));
+        return -1;
+    }
+
+    player_data.chips = 500;
+    player_data.games_played = 0;
+    player_data.games_won = 0;
+
+    return mysql_insert_id(database);
+}
+
+// Update player data in database
+void update_player_database(MYSQL *database, int player_id, const player &player_data)
+{
+    if (database == nullptr || player_id == -1)
+    {
+        return;
+    }
+
+    string query = "UPDATE PLAYER SET CHIPS = " + to_string(player_data.chips) +
+                   ", GAME_PLAYED = " + to_string(player_data.games_played) +
+                   ", GAMES_WON = " + to_string(player_data.games_won) +
+                   " WHERE PLAYER_ID = " + to_string(player_id);
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Database update failed: " + string(mysql_error(database)));
+    }
+}
+void save_result_to_database(MYSQL *database, int player_id, string game_type, result_type result, int chips_change)
+{
+    if (database == nullptr || player_id == -1)
+    {
+        return;
+    }
+
+    string result_text;
+
+    if (result == WIN)
+    {
+        result_text = "WIN";
+    }
+    else if (result == LOSS)
+    {
+        result_text = "LOSS";
+    }
+    else
+    {
+        result_text = "DRAW";
+    }
+
+    string query = "INSERT INTO GAME_RESULT (PLAYER_ID, GAME_TYPE, RESULT, CHIPS_CHANGE) VALUES (" +
+                   to_string(player_id) + ", '" +
+                   game_type + "', '" +
+                   result_text + "', " +
+                   to_string(chips_change) + ")";
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Could not save game result: " + string(mysql_error(database)));
+    }
 }
