@@ -17,6 +17,7 @@ enum menu_option
     PLAY_SLOTS,
     SHOW_STATS,
     SHOW_HISTORY,
+    SHOW_LEADERBOARD,
     QUIT
 };
 
@@ -33,6 +34,7 @@ struct player
     int chips;
     int games_played;
     int games_won;
+    int total_wins;
 };
 
 struct game_result
@@ -65,6 +67,8 @@ MYSQL *connect_database();
 int get_or_create_player(MYSQL *database, player &player_data);
 void update_player_database(MYSQL *database, int player_id, const player &player_data);
 void save_result_to_database(MYSQL *database, int player_id, string game_type, result_type result, int chips_change);
+void print_database_history(MYSQL *database, int player_id);
+void print_leaderboard(MYSQL *database);
 
 int main()
 {
@@ -88,6 +92,7 @@ int main()
     player_data.chips = 500;
     player_data.games_played = 0;
     player_data.games_won = 0;
+    player_data.total_wins = 0;
 
     game_result history[MAX_HISTORY];
     int history_count = 0;
@@ -172,7 +177,17 @@ int main()
             break;
 
         case SHOW_HISTORY:
-            print_history(history, history_count);
+            if (database != nullptr && player_id != -1)
+            {
+                print_database_history(database, player_id);
+            }
+            else
+            {
+                print_history(history, history_count);
+            }
+            break;
+        case SHOW_LEADERBOARD:
+            print_leaderboard(database);
             break;
 
         case QUIT:
@@ -204,7 +219,8 @@ void print_menu()
     write_line("3. Play Slot Machine");
     write_line("4. Show player statistics");
     write_line("5. Show game history");
-    write_line("6. Quit");
+    write_line("6. Show leaderboard");
+    write_line("7. Quit");
     write("Option: ");
 }
 
@@ -217,6 +233,7 @@ void print_player(const player &player_data)
     write_line("Chips: " + to_string(player_data.chips));
     write_line("Games played: " + to_string(player_data.games_played));
     write_line("Games won: " + to_string(player_data.games_won));
+    write_line("Total winnings: " + to_string(player_data.total_wins));
 }
 
 // Read and validate bet
@@ -238,7 +255,8 @@ int get_bet(const player &player_data)
 }
 
 // Save game result
-void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value, int computer_value)
+void save_result(game_result history[], int &history_count, string game_name, int bet, result_type result, int player_value,
+                 int computer_value)
 {
     if (history_count < MAX_HISTORY)
     {
@@ -335,6 +353,7 @@ void play_dice(player &player_data, game_result history[], int &history_count, M
 
         player_data.chips += winnings;
         player_data.games_won++;
+        player_data.total_wins += winnings;
 
         write_line("Correct guess!");
         write_line("You won " + to_string(winnings) + " chips.");
@@ -532,6 +551,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
 
         player_data.chips += winnings;
         player_data.games_won++;
+        player_data.total_wins += winnings;
 
         write_line("Dealer busted. You win!");
         write_line("You won " + to_string(winnings) + " chips.");
@@ -545,6 +565,7 @@ void play_blackjack(player &player_data, game_result history[], int &history_cou
 
         player_data.chips += winnings;
         player_data.games_won++;
+        player_data.total_wins += winnings;
 
         write_line("You win!");
         write_line("You won " + to_string(winnings) + " chips.");
@@ -780,6 +801,7 @@ void play_slots(player &player_data, game_result history[], int &history_count, 
 
         player_data.chips += total_winnings;
         player_data.games_won++;
+        player_data.total_wins += total_winnings;
 
         write_line("");
         write_line("You win!");
@@ -842,7 +864,7 @@ int get_or_create_player(MYSQL *database, player &player_data)
         return -1;
     }
 
-    string query = "SELECT PLAYER_ID, CHIPS, GAME_PLAYED, GAMES_WON FROM PLAYER WHERE NAME = '" + player_data.name + "'";
+    string query = "SELECT PLAYER_ID, CHIPS, GAME_PLAYED, GAMES_WON, TOTAL_WINS FROM PLAYER WHERE NAME = '" + player_data.name + "'";
 
     if (mysql_query(database, query.c_str()) != 0)
     {
@@ -863,6 +885,7 @@ int get_or_create_player(MYSQL *database, player &player_data)
             player_data.chips = convert_to_integer(row[1]);
             player_data.games_played = convert_to_integer(row[2]);
             player_data.games_won = convert_to_integer(row[3]);
+            player_data.total_wins = convert_to_integer(row[4]);
 
             mysql_free_result(result);
 
@@ -883,6 +906,7 @@ int get_or_create_player(MYSQL *database, player &player_data)
     player_data.chips = 500;
     player_data.games_played = 0;
     player_data.games_won = 0;
+    player_data.total_wins = 0;
 
     return mysql_insert_id(database);
 }
@@ -898,6 +922,7 @@ void update_player_database(MYSQL *database, int player_id, const player &player
     string query = "UPDATE PLAYER SET CHIPS = " + to_string(player_data.chips) +
                    ", GAME_PLAYED = " + to_string(player_data.games_played) +
                    ", GAMES_WON = " + to_string(player_data.games_won) +
+                   ", TOTAL_WINS = " + to_string(player_data.total_wins) +
                    " WHERE PLAYER_ID = " + to_string(player_id);
 
     if (mysql_query(database, query.c_str()) != 0)
@@ -905,6 +930,8 @@ void update_player_database(MYSQL *database, int player_id, const player &player
         write_line("Database update failed: " + string(mysql_error(database)));
     }
 }
+
+// Save result to database
 void save_result_to_database(MYSQL *database, int player_id, string game_type, result_type result, int chips_change)
 {
     if (database == nullptr || player_id == -1)
@@ -937,4 +964,109 @@ void save_result_to_database(MYSQL *database, int player_id, string game_type, r
     {
         write_line("Could not save game result: " + string(mysql_error(database)));
     }
+}
+// Display game history from database
+void print_database_history(MYSQL *database, int player_id)
+{
+    if (database == nullptr || player_id == -1)
+    {
+        return;
+    }
+
+    string query = "SELECT MATCH_ID, GAME_TYPE, RESULT, CHIPS_CHANGE, PLAYED_TIME "
+                   "FROM GAME_RESULT WHERE PLAYER_ID = " +
+                   to_string(player_id) +
+                   " ORDER BY MATCH_ID DESC";
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Could not load game history: " + string(mysql_error(database)));
+        return;
+    }
+
+    MYSQL_RES *result = mysql_store_result(database);
+
+    if (result == nullptr)
+    {
+        write_line("Could not load game history.");
+        return;
+    }
+
+    write_line("");
+    write_line("=== Game History ===");
+
+    if (mysql_num_rows(result) == 0)
+    {
+        write_line("No games have been played yet.");
+        mysql_free_result(result);
+        return;
+    }
+
+    MYSQL_ROW row;
+
+    while ((row = mysql_fetch_row(result)) != nullptr)
+    {
+        write_line("");
+        write_line("Match ID: " + string(row[0]));
+        write_line("Game type: " + string(row[1]));
+        write_line("Result: " + string(row[2]));
+        write_line("Chip change: " + string(row[3]));
+        write_line("Played time: " + string(row[4]));
+    }
+
+    mysql_free_result(result);
+}
+// Display leaderboard
+void print_leaderboard(MYSQL *database)
+{
+    if (database == nullptr)
+    {
+        write_line("Database is not available.");
+        return;
+    }
+
+    string query = "SELECT NAME, TOTAL_WINS, GAMES_WON FROM PLAYER "
+                   "ORDER BY TOTAL_WINS DESC LIMIT 10";
+
+    if (mysql_query(database, query.c_str()) != 0)
+    {
+        write_line("Could not load leaderboard: " + string(mysql_error(database)));
+        return;
+    }
+
+    MYSQL_RES *result = mysql_store_result(database);
+
+    if (result == nullptr)
+    {
+        write_line("Could not load leaderboard.");
+        return;
+    }
+
+    write_line("");
+    write_line("=== Leaderboard ===");
+
+    if (mysql_num_rows(result) == 0)
+    {
+        write_line("No players found.");
+        mysql_free_result(result);
+        return;
+    }
+
+    write_line("Rank | Name | Total Winnings | Games Won");
+
+    MYSQL_ROW row;
+    int rank = 1;
+
+    while ((row = mysql_fetch_row(result)) != nullptr)
+    {
+        write_line(
+            to_string(rank) + " | " +
+            string(row[0]) + " | " +
+            string(row[1]) + " | " +
+            string(row[2]));
+
+        rank++;
+    }
+
+    mysql_free_result(result);
 }
